@@ -5,32 +5,30 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <mqueue.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <pthread.h>
 
 #include "../include/common.h"
 
 
-void* info(void*){
-    mqd_t mq;
-    struct mq_attr attr;
-    char buffer[MAX_SIZE + 1];
-    int must_stop = 0;
+void* info(void* a){
+    key_t key;
+    int msgid;
     ssize_t bytes_read;
+    key = ftok("server", 'A');
     CLIENT_LIST_STRUCT *rcv_msg, *current;
     rcv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
 
-    /* initialize the queue attributes */
-    attr.mq_flags = 0;
-    attr.mq_maxmsg = 1024;
-    attr.mq_msgsize = MAX_SIZE;
-    attr.mq_curmsgs = 0;
-
-    /* create the message queue */
-    mq = mq_open(QUEUE_INFO_NAME, O_CREAT | O_RDWR, 0666, &attr);
-    CHECK((mqd_t)-1 != mq);
+    msgid = msgget(key, 0666 | IPC_CREAT);
+    if (msgid == -1) {
+      perror("msgget failed with error");
+      exit(EXIT_FAILURE);
+    }
 
     do {
         /* receive the message */
-        bytes_read = mq_receive(mq, &rcv_msg, sizeof(CLIENT_LIST_STRUCT), NULL);
+        bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), 1L, 0);
         CHECK(bytes_read >= 0);
         switch(rcv_msg->msg_type){
             case MSG_CONNECT:/*TODO add mutex to sync*/
@@ -38,85 +36,95 @@ void* info(void*){
                 head->next->prev = rcv_msg;
                 rcv_msg->prev = head;
                 head-> next = rcv_msg;
-		current = head->next;
-		while(current != tail){
-                    mq_send(mq, rcv_msg, sizeof(CLIENT_LIST_STRUCT), current->prio);
-		    current = current->next;
-		}
+		        current = head->next;
+                while(current != tail){
+                    msgsnd(msgid, (void*) rcv_msg, sizeof(CLIENT_LIST_STRUCT), 0);
+                    current = current->next;
+                }
                 break;
             case MSG_DISCONNECT:/*TODO add mutex to sync*/
-		current = head->next;
-		while(current != tail){
-		   if(current->prio == rcv_msg->prio){
-		   	current->prev->next = current->next;
-		   	current->next->prev = current->prev;
-		   	free(current);
-		   }
-		   current = current->next;
-		}
-		current = head->next;
-		while(current != tail){
-		    mq_send(mq, rcv_msg, sizeof(CLIENT_LIST_STRUCT), current->prio);
-		    current = current->next;
-		}
+        		current = head->next;
+        		while(current != tail){
+        		    if(current->prio == rcv_msg->prio){
+                        current->prev->next = current->next;
+            		   	current->next->prev = current->prev;
+            		   	free(current);
+                        break;
+        		    }
+        		    current = current->next;
+        		}
+        		current = head->next;
+        		while(current != tail){
+        		    msgsnd(msgid, (void*)rcv_msg, sizeof(CLIENT_LIST_STRUCT), 0);
+        		    current = current->next;
+        		}
                 break;
         }
     } while (1);/*CHANGE to CORRECT EXIT*/
 
     /* cleanup */
-    CHECK((mqd_t)-1 != mq_close(mq));
-    CHECK((mqd_t)-1 != mq_unlink(QUEUE_NAME));
-
+    msgctl(msgid, IPC_RMID, 0);
 }
 
-void* msgs_send(void*){
-    mqd_t mq;
-    struct mq_attr attr;
-    char buffer[MAX_SIZE + 1];
-    int must_stop = 0;
-    CLIENT_LIST_STRUCT *rcv_msg, *current;
+void* msgs_send(void* a){
+    key_t key;
+    int msgid;
+    ssize_t bytes_read;
+    key = ftok("server", 'B');
+    CLIENT_LIST_STRUCT *current;
+    MESSAGE_BUFFER *rcv_msg;
 
-    /* initialize the queue attributes */
-    attr.mq_flags = 0;
-    attr.mq_maxmsg = 1024;
-    attr.mq_msgsize = MAX_SIZE;
-    attr.mq_curmsgs = 0;
+    rcv_msg = malloc(sizeof(MESSAGE_BUFFER));
 
-    /* create the message queue */
-    mq = mq_open(QUEUE_MSGS_NAME, O_CREAT | O_RDONLY, 0644, &attr);
-    CHECK((mqd_t)-1 != mq);
+    msgid = msgget(key, 0666 | IPC_CREAT);
+    if (msgid == -1) {
+      perror("msgget failed with error");
+      exit(EXIT_FAILURE);
+    }
+
 
     do {
-        ssize_t bytes_read;
-
         /* receive the message */
-        bytes_read = mq_receive(mq, buffer, MAX_SIZE, NULL);
+        bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(MESSAGE_BUFFER), 1L, 0);
         CHECK(bytes_read >= 0);
-
-        buffer[bytes_read] = '\0';
-        if (!strncmp(buffer, MSG_STOP, strlen(MSG_STOP))){
-            must_stop = 1;
+        current = head->next;
+        while(current != tail){
+            rcv_msg->mtype = current->prio;
+            msgsnd(msgid, (void*)rcv_msg, sizeof(MESSAGE_BUFFER), 0);
+            current = current->next;
         }
-        else{
-            
-        }
-    } while (!must_stop);
+    } while (1);
 
-    /* cleanup */
-    CHECK((mqd_t)-1 != mq_close(mq));
-    CHECK((mqd_t)-1 != mq_unlink(QUEUE_NAME));
+    msgctl(msgid, IPC_RMID, 0);
 }
 
 int main(int argc, char **argv)
 {
+    pthread_t tid_send, tid_info;
+    int *status = malloc(sizeof(int*));
     head = malloc(sizeof(CLIENT_LIST_STRUCT));
     tail = malloc(sizeof(CLIENT_LIST_STRUCT));
 
     head->next = tail;
     head->prev = NULL;
 
-    tail->prev = prev;
+    tail->prev = head;
     tail->next = NULL;
+    pthread_create(&tid_info, NULL, info, NULL);
+    pthread_create(&tid_send, NULL, msgs_send, NULL);
+
+    pthread_join(tid_info, (void**) &status);
+    if(!status){
+        perror("pthread error");
+        exit(-1);
+    }
+
+    pthread_join(tid_send, (void**) &status);
+    if(!status){
+
+        perror("pthread error");
+        exit(-1);
+    }
 
     return 0;
 }
