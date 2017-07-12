@@ -28,6 +28,7 @@ void* msg_rcv(void* a){
       exit(EXIT_FAILURE);
     }
     pid = getpid();
+    printf("pid = %ld\n", pid);
     do {
         /* receive the message */
         bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(MESSAGE_BUFFER), pid, 0);
@@ -58,10 +59,11 @@ void* msg_send(void* a){
         if (buffer[strlen(buffer) - 1] == '\n') {
             buffer[strlen(buffer) - 1] = '\0';
         }
-        snd_msg->mtype = getpid();
+        snd_msg->mtype = 1L;
         strncpy(snd_msg->mtext, buffer, MAX_SIZE);
         msgsnd(msgid, (void*)snd_msg, sizeof(MESSAGE_BUFFER), 0);
     }
+
     msgctl(msgid, IPC_RMID, 0);
 }
 
@@ -70,7 +72,8 @@ void* msg_info(void* a){
     int msgid;
     ssize_t bytes_read;
     char buffer[21];
-    key = ftok("server", 'A');
+    long pid;
+    key = ftok("server", 'C');
     CLIENT_LIST_STRUCT *rcv_msg, *current;
     rcv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
     current = malloc(sizeof(CLIENT_LIST_STRUCT));
@@ -81,8 +84,8 @@ void* msg_info(void* a){
       perror("msgget failed with error2");
       exit(EXIT_FAILURE);
     }
-
-    current->prio = getpid();
+    pid = getpid();
+    current->prio = /*pid*/1L;
     current->msg_type = MSG_CONNECT;
     
     fgets(buffer, MAX_SIZE, stdin);
@@ -91,7 +94,7 @@ void* msg_info(void* a){
     }
     strncpy(current->name, buffer, 20);
 
-    msgsnd(msgid, (void*)current, sizeof(MESSAGE_BUFFER), 0);
+    msgsnd(msgid, (void*)current, sizeof(CLIENT_LIST_STRUCT), 0);
     
     /*
         add msg_receive to arrey with names
@@ -99,7 +102,7 @@ void* msg_info(void* a){
 
     do {
         /* receive the message */
-        bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), 1L, 0);
+        bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), pid, 0);
         CHECK(bytes_read >= 0);
         switch(rcv_msg->msg_type){
             case MSG_CONNECT:/*TODO add mutex to sync*/

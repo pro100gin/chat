@@ -16,9 +16,10 @@ void* info(void* a){
     key_t key;
     int msgid;
     ssize_t bytes_read;
-    key = ftok("server", 'A');
-    CLIENT_LIST_STRUCT *rcv_msg, *current;
+    key = ftok("server", 'D');
+    CLIENT_LIST_STRUCT *rcv_msg, *current, *temp;
     rcv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
+    temp = malloc(sizeof(CLIENT_LIST_STRUCT));
 
     msgid = msgget(key, 0666 | IPC_CREAT);
     if (msgid == -1) {
@@ -28,17 +29,25 @@ void* info(void* a){
 
     do {
         /* receive the message */
-        bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), 1L, 0);
+        bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), 0, 0);
+        printf("%s connected with prio: %ld\n", rcv_msg->name, rcv_msg->prio);
         CHECK(bytes_read >= 0);
         switch(rcv_msg->msg_type){
             case MSG_CONNECT:/*TODO add mutex to sync*/
+                
                 rcv_msg->next = head->next;
                 head->next->prev = rcv_msg;
                 rcv_msg->prev = head;
-                head-> next = rcv_msg;
+                head->next = rcv_msg;
 		        current = head->next;
+
+                temp->msg_type = rcv_msg->msg_type;
+                strncmp(temp->name, rcv_msg->name, 20);
+
                 while(current != tail){
-                    msgsnd(msgid, (void*) rcv_msg, sizeof(CLIENT_LIST_STRUCT), 0);
+                    temp->prio = current->prio;
+                    printf("send new connection to %ld\n", temp->prio);
+                    msgsnd(msgid, (void*) temp, sizeof(CLIENT_LIST_STRUCT), 0);
                     current = current->next;
                 }
                 break;
@@ -86,9 +95,12 @@ void* msgs_send(void* a){
     do {
         /* receive the message */
         bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(MESSAGE_BUFFER), 1L, 0);
+        printf("rcv mcg: %s\n", rcv_msg->mtext);
+
         CHECK(bytes_read >= 0);
         current = head->next;
         while(current != tail){
+            printf("send to: %ld\n", current->prio);
             rcv_msg->mtype = current->prio;
             msgsnd(msgid, (void*)rcv_msg, sizeof(MESSAGE_BUFFER), 0);
             current = current->next;
