@@ -41,33 +41,36 @@ void* info(void* a){
     start = shm;
     do {
         /* receive the message */
-	    rcv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
+	rcv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
         bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), 0L, 0);
-        printf("%s connected with prio: %ld\n", rcv_msg->name, rcv_msg->prio);
         CHECK(bytes_read >= 0);
         switch(rcv_msg->msg_type){
             case MSG_CONNECT:/*TODO add mutex to sync*/
-		        count++;
+                printf("%s connected with prio: %ld\n", rcv_msg->name, rcv_msg->prio);
+		count++;
                 rcv_msg->next = head->next;
                 head->next->prev = rcv_msg;
                 rcv_msg->prev = head;
                 head->next = rcv_msg;
 
-
                 break;
             case MSG_DISCONNECT:/*TODO add mutex to sync*/
-        	    count--;
+                printf("%s disconnected with prio: %ld\n", rcv_msg->name, rcv_msg->prio);
+                count--;
                 current = head->next;
-            	while(current != tail){
-            	    if(current->prio == rcv_msg->prio){
+                rcv_msg->prio/=10;
+                while(current != tail){
+                    if(current->prio == rcv_msg->prio){
                         current->prev->next = current->next;
             	        current->next->prev = current->prev;
             	        free(current);
                         break;
             	    }
+            	    current = current->next;
             	}
                 break;
         }
+
         shm = start;
         current = head->next;
         while(current!=tail){
@@ -75,6 +78,7 @@ void* info(void* a){
             shm+=sizeof(CLIENT_LIST_STRUCT);
             current=current->next;
         }
+
         temp->msg_type = rcv_msg->msg_type;
         strncpy(temp->name, rcv_msg->name, 20);
         current = head->next;
@@ -85,8 +89,7 @@ void* info(void* a){
             msgsnd(msgid, (void*) temp, sizeof(CLIENT_LIST_STRUCT), 0);
             current = current->next;
         }
-        usleep(0.001);
-        
+        usleep(10);
 
     } while (1);/*CHANGE to CORRECT EXIT*/
 

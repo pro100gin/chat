@@ -43,13 +43,17 @@ void* msg_rcv(void* a){
 }
 
 void* msg_send(void* arg){
-    key_t key;
-    int msgid;
+    key_t key, key_srv;
+    int msgid, msgid_srv;
     char *name = (char*) arg;
     char buffer[MAX_SIZE + 1];
     ssize_t bytes_read;
+    long pid = getpid();
     key = ftok("server", 'B');
+    key_srv = ftok("server", 'D');
     MESSAGE_BUFFER *snd_msg;
+    CLIENT_LIST_STRUCT *snd_srv_msg;
+    snd_srv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
     snd_msg = malloc(sizeof(MESSAGE_BUFFER));
     strncpy(snd_msg->sender_name, name, 20);
     msgid = msgget(key, 0);
@@ -57,14 +61,31 @@ void* msg_send(void* arg){
       perror("msgget failed with error1");
       exit(EXIT_FAILURE);
     }
+    msgid_srv = msgget(key_srv, 0);
+
+    if (msgid_srv == -1) {
+      perror("msgget failed with error1");
+      exit(EXIT_FAILURE);
+    }
+
     while(1){
         fgets(buffer, MAX_SIZE, stdin);
         if (buffer[strlen(buffer) - 1] == '\n') {
             buffer[strlen(buffer) - 1] = '\0';
         }
-        snd_msg->mtype = 1L;
-        strncpy(snd_msg->mtext, buffer, MAX_SIZE);
-        msgsnd(msgid, (void*)snd_msg, sizeof(MESSAGE_BUFFER), 0);
+
+        if(!strcmp(buffer, "exit")){
+            snd_srv_msg->prio = pid*10;
+            snd_srv_msg->msg_type = MSG_DISCONNECT;
+            strncpy(snd_srv_msg->name, name, 20);
+            msgsnd(msgid_srv, (void*)snd_srv_msg, sizeof(CLIENT_LIST_STRUCT), 0);
+            exit(0);
+	}
+        else{
+            snd_msg->mtype = 1L;
+            strncpy(snd_msg->mtext, buffer, MAX_SIZE);
+            msgsnd(msgid, (void*)snd_msg, sizeof(MESSAGE_BUFFER), 0);
+        }
     }
 
     msgctl(msgid, IPC_RMID, 0);
@@ -109,11 +130,13 @@ void* msg_info(void* arg){
     do {
         /* receive the message */
         rcv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
-	    bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), pid, 0);
-        CHECK(bytes_read >= 0);
-        current = (CLIENT_LIST_STRUCT*)shm;
-        printf("------------------------------\nlist of users:\n");
 
+        bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), pid, 0);
+        CHECK(bytes_read >= 0);
+
+        current = (CLIENT_LIST_STRUCT*)shm;
+
+        printf("------------------------------\nlist of users:\n");
         for(i = 0; i < rcv_msg->msg_type; ++i){
             printf("%s\n", current->name);
             current++;
