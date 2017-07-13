@@ -15,12 +15,13 @@
 
 void* info(void* a){
     key_t key, key_mem;
-    int msgid;
+    int msgid, count;
     ssize_t bytes_read;
     int shmid;
     char *shm, *start;
+    count = 0;
     key = ftok("server", 'D');
-    key = ftok("client", 'A');
+    key_mem = ftok("client", 'A');
     CLIENT_LIST_STRUCT *rcv_msg, *current, *temp;
     temp = malloc(sizeof(CLIENT_LIST_STRUCT));
 
@@ -29,7 +30,7 @@ void* info(void* a){
       perror("msgget error");
       exit(EXIT_FAILURE);
     }
-    if ((shmid = shmget(key, 4096, IPC_CREAT | 0666)) < 0) {
+    if ((shmid = shmget(key_mem, 4096, IPC_CREAT | 0666)) < 0) {
         perror("shmget error");
         exit(1);
     }
@@ -40,13 +41,14 @@ void* info(void* a){
     start = shm;
     do {
         /* receive the message */
-	rcv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
+	    rcv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
         bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), 0L, 0);
         printf("%s connected with prio: %ld\n", rcv_msg->name, rcv_msg->prio);
         CHECK(bytes_read >= 0);
         switch(rcv_msg->msg_type){
             case MSG_CONNECT:/*TODO add mutex to sync*/
-		rcv_msg->next = head->next;
+		        count++;
+                rcv_msg->next = head->next;
                 head->next->prev = rcv_msg;
                 rcv_msg->prev = head;
                 head->next = rcv_msg;
@@ -54,38 +56,41 @@ void* info(void* a){
 
                 break;
             case MSG_DISCONNECT:/*TODO add mutex to sync*/
-        	current = head->next;
-        	while(current != tail){
-        	    if(current->prio == rcv_msg->prio){
+        	    count--;
+                current = head->next;
+            	while(current != tail){
+            	    if(current->prio == rcv_msg->prio){
                         current->prev->next = current->next;
             	        current->next->prev = current->prev;
             	        free(current);
                         break;
-        	    }
-        	}
+            	    }
+            	}
                 break;
         }
-
-        temp->msg_type = rcv_msg->msg_type;
-        strncmp(temp->name, rcv_msg->name, 20);
+        shm = start;
         current = head->next;
-        while(current != tail){
-            temp->prio = current->prio;
-            printf("send new connection to %ld\n", temp->prio);
-            msgsnd(msgid, (void*) temp, sizeof(CLIENT_LIST_STRUCT), 0);
-            current = current->next;
-        }
-
-        current = head;
-        while(current!=tail->next){
+        while(current!=tail){
             memcpy(shm, current, sizeof(CLIENT_LIST_STRUCT));
             shm+=sizeof(CLIENT_LIST_STRUCT);
             current=current->next;
         }
+        temp->msg_type = rcv_msg->msg_type;
+        strncpy(temp->name, rcv_msg->name, 20);
+        current = head->next;
+        while(current != tail){
+            temp->prio = current->prio;
+            temp->msg_type = count;
+            printf("send new connection to %ld\n", temp->prio);
+            msgsnd(msgid, (void*) temp, sizeof(CLIENT_LIST_STRUCT), 0);
+            current = current->next;
+        }
+        usleep(0.001);
+        
 
     } while (1);/*CHANGE to CORRECT EXIT*/
 
-    /* cleanup */
+    /* cleanup add clean */
     msgctl(msgid, IPC_RMID, 0);
 }
 

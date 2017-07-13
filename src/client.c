@@ -9,6 +9,8 @@
 #include <sys/msg.h>
 #include <pthread.h>
 #include <time.h>
+#include <sys/shm.h>
+
 #include "../include/common.h"
 
 CLIENT_LIST_STRUCT *cl_head, *cl_tail;
@@ -69,12 +71,15 @@ void* msg_send(void* arg){
 }
 
 void* msg_info(void* arg){
-    key_t key;
-    int msgid;
+    key_t key, key_mem;
+    int msgid, i;
     ssize_t bytes_read;
     long pid;
+    int shmid;
+    char *shm, *start;
     char* name = (char*) arg;
     key = ftok("server", 'D');
+    key_mem = ftok("client", 'A');
     CLIENT_LIST_STRUCT *rcv_msg, *current;
     current = malloc(sizeof(CLIENT_LIST_STRUCT));
 
@@ -91,10 +96,7 @@ void* msg_info(void* arg){
 
     msgsnd(msgid, (void*)current, sizeof(CLIENT_LIST_STRUCT), 0);
 
-    /*
-        add msg_receive to arrey with names
-    */
-    if ((shmid = shmget(key, 4096, 0)) < 0) {
+    if ((shmid = shmget(key_mem, 4096, 0)) < 0) {
         perror("shmget error");
         exit(1);
     }
@@ -106,31 +108,18 @@ void* msg_info(void* arg){
 
     do {
         /* receive the message */
-        rcv_msg = maxlloc(sizeof(CLIENT_LIST_STRUCT));
-	bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), pid, 0);
+        rcv_msg = malloc(sizeof(CLIENT_LIST_STRUCT));
+	    bytes_read = msgrcv(msgid, (void *)rcv_msg, sizeof(CLIENT_LIST_STRUCT), pid, 0);
         CHECK(bytes_read >= 0);
-        current = (CLIENT_LIST_STRUCT*) shm;
-        
-        /*switch(rcv_msg->msg_type){
-            case MSG_CONNECT:/*TODO add mutex to sync
-                rcv_msg->next = cl_head->next;
-                cl_head->next->prev = rcv_msg;
-                rcv_msg->prev = cl_head;
-                cl_head->next = rcv_msg;
-                break;
-            case MSG_DISCONNECT:/*TODO add mutex to sync
-                current = cl_head->next;
-                while(current != cl_tail){
-                    if(current->prio == rcv_msg->prio){
-                        current->prev->next = current->next;
-                        current->next->prev = current->prev;
-                        free(current);
-                        break;
-                    }
-                    current = current->next;
-                }
-                break;
-        }*/
+        current = (CLIENT_LIST_STRUCT*)shm;
+        printf("------------------------------\nlist of users:\n");
+
+        for(i = 0; i < rcv_msg->msg_type; ++i){
+            printf("%s\n", current->name);
+            current++;
+        }
+        printf("------------------------------\n");
+
     } while (1);/*CHANGE to CORRECT EXIT*/
 
     /* cleanup */
